@@ -1,4 +1,4 @@
-from flask import Flask, jsonify,request, bcrypt
+from flask import Flask, jsonify,request
 from flask_pymongo import PyMongo
 from bson.json_util import dumps
 from bson.objectid import ObjectId
@@ -83,6 +83,16 @@ def update_user(id):
     else:
         return not_found()
 
+@app.route('/login')
+def login():
+    _json = request.json
+    username = _json['name']
+    password = _json['pwd']
+    user = mongo.db.user.find_one({'name':username})
+    if password == user['pwd']:
+        return "Login success"
+    else:
+        return "Incorrect password"
 
 
     

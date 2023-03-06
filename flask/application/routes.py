@@ -17,7 +17,7 @@ def add_todo():
         todo_name = form.name.data
         todo_description = form.description.data
         completed = form.completed.data
-        db.insert_one({
+        db.todo_flask.insert_one({
             "name": todo_name,
             "description":todo_description,
             "completed":completed,

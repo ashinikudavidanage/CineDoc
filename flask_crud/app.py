@@ -1,8 +1,13 @@
-from flask import Flask, jsonify,request
+from flask import Flask, jsonify,request, redirect, url_for, render_template
 from flask_pymongo import PyMongo
 from bson.json_util import dumps
 from bson.objectid import ObjectId
 from werkzeug.security import generate_password_hash, check_password_hash
+
+import numpy as np 
+from keras.applications.imagenet_utils import preprocess_input, decode_predictions
+from keras.models import load_model
+from keras.preprocessing import image
 
 app = Flask(__name__) 
 app.secret_key = "cinadoc"
@@ -94,8 +99,18 @@ def login():
     else:
         return "Incorrect password"
 
+    #   Getting output from the model
+model = load_model('acc71.h5')
+model._make_predict_function()
 
-    
+def model_predict(img_path, model):
+    img = image.load_img(img_path, target_size=(255,255))
+    x = image.img_to_array(img)
+    x = np.expand_dims(x, axis=0)
+    x = preprocess_input(x)
+    preds = model.predict(x)
+    return preds
+
 if __name__ == "__main__":
     app.run(debug=True)
 

@@ -1,14 +1,11 @@
 from __future__ import division, print_function
-# coding=utf-8
-import sys
 import os
-import glob
-import re
 
 from flask import Flask, jsonify,request, redirect, url_for, render_template
 from flask_pymongo import PyMongo
 from bson.json_util import dumps
 from bson.objectid import ObjectId
+import hashlib
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -35,9 +32,16 @@ def add_user():
     _phone = _json['phone']
     _password = _json['pwd']
 
+    #encrypted_pwd = hashlib.sha256()
+
+
     if _name and _email and _password and _phone and request.method == 'POST':
+        #_json.dumps(_password)
+        #json_pswd = _json.dumps(_password)
+        #encrypted_pwd.update(_password)
+        #_json.loads(encrypted_pwd)
         _hashed_password = generate_password_hash(_password)   
-        id = mongo.db.user.insert_one({'name':_name, 'email':_email, 'phone':_phone, 'pwd':_hashed_password})
+        id = mongo.db.user.insert_one({'name':_name, 'email':_email, 'phone':_phone, 'pwd':_password})
         resp = jsonify("User created")
         resp.status_code = 200
         return resp
@@ -99,6 +103,7 @@ def login():
     _json = request.json
     username = _json['name']
     password = _json['pwd']
+    #pswd = check_password_hash(password)
     user = mongo.db.user.find_one({'name':username})
     if password == user['pwd']:
         return "Login success"

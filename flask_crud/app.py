@@ -1,117 +1,81 @@
-from __future__ import division, print_function
-import os
-
-from flask import Flask, jsonify,request, redirect, url_for, render_template
+# Importing necessary libraries
+from flask import Flask, jsonify, request
 from flask_pymongo import PyMongo
 from bson.json_util import dumps
 from bson.objectid import ObjectId
-import hashlib
-from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
-
+from werkzeug.security import generate_password_hash
+import bcrypt
+from io import BytesIO
+import requests
 import numpy as np 
-from keras.applications import VGG19
-from keras.applications.imagenet_utils import preprocess_input, decode_predictions
+from keras.applications.imagenet_utils import preprocess_input
 from keras.models import load_model
 import keras.utils as image
-#from keras.preprocessing import image
+from pymongo import MongoClient
+import dropbox
 
+# Dropbox setup
+dbx = dropbox.Dropbox('sl.Bbt7SavKopMJjFqe3LEt2wTwPhBzjP1cci3LX1_ihEXQDCuomRHg2JfyekMOHn-cCSJqZK8atawi5elp76mFQfHVzNm6QIVLedWJjaJKUKisyI2ieZJolknmoI0wP9fl2O7cl9_LFs3m')
+
+
+# Setting up mongodb
 app = Flask(__name__) 
 app.secret_key = "cinadoc"
-app.config['MONGO_URI'] = "mongodb://localhost:27017/Users"
-
+app.config['MONGO_URI'] = "mongodb+srv://gshantheep:cinadoc@cluster0.cz7xwta.mongodb.net/?retryWrites=true&w=majority"
+client = MongoClient(app.config['MONGO_URI'])
+db = client.get_database('Users')
+collection = db.get_collection('user')
 mongo = PyMongo(app)
 
+# User registeration
+@app.route('/register',methods=['POST'])
 
-@app.route('/add',methods=['POST'])
-
-def add_user():   
+def register_user():   
     _json = request.json
     _name = _json['name']
     _email = _json['email']
     _phone = _json['phone']
-    _password = _json['pwd']
+    _encrypted_pswd = bcrypt.hashpw(_json['pwd'].encode('utf-8'), bcrypt.gensalt()) # Pswd encryption
 
-    #encrypted_pwd = hashlib.sha256()
+    existing_user = collection.find_one({'name': _name})
 
+    if _name and _email and _encrypted_pswd and _phone and request.method == 'POST':
 
-    if _name and _email and _password and _phone and request.method == 'POST':
-        #_json.dumps(_password)
-        #json_pswd = _json.dumps(_password)
-        #encrypted_pwd.update(_password)
-        #_json.loads(encrypted_pwd)
-        _hashed_password = generate_password_hash(_password)   
-        id = mongo.db.user.insert_one({'name':_name, 'email':_email, 'phone':_phone, 'pwd':_password})
-        resp = jsonify("User created")
-        resp.status_code = 200
-        return resp
+        if existing_user:
+            response = jsonify("Username already taken")
+            response.status_code = 404
+            return response
+        else:
+            id = collection.insert_one({'name':_name, 'email':_email, 'phone':_phone, 'pwd':_encrypted_pswd })
+            response = jsonify("User created successfully!")
+            response.status_code = 200
+            return response   
 
     else:
-        return not_found()
+        resp  = jsonify("Required fields are empty")
+        resp.status_code = 404
+        return resp    
 
-@app.errorhandler(404)
-def not_found(error=None):
-    message = {
-        'status':404,
-        'message':'Not found' + request.url
-    }
-    resp = jsonify(message)
-
-    resp.status_code = 404
-    return resp
-
-@app.route('/users')
-def users():
-    users = mongo.db.user.find()
-    resp = dumps(users)
-    return resp
-
-@app.route('/user/<id>')
-def user(id):
-    user = mongo.db.user.find_one({'_id':ObjectId(id)})
-    resp = dumps(user)
-    return resp
-
-@app.route('/delete/<id>', methods=['DELETE'])
-def delete_user(id):
-    mongo.db.user.delete_one({'_id':ObjectId(id)})
-    resp = jsonify("User deleted")
-    resp.status_code = 200
-    return resp
-
-@app.route('/update/<id>', methods=['PUT'])
-def update_user(id):
-    _id = id
-    _json = request.json
-    _name = _json['name']
-    _email = _json['email']
-    _phone = _json['phone']
-    _password = _json['pwd']
-
-    if _name and _email and _password and _phone and request.method == 'PUT':
-        _hashed_password = generate_password_hash(_password)
-    
-        mongo.db.user.update_one({'_id': ObjectId(['$olid']) if '$olid' in _id else ObjectId(_id) }, {'$set': {'name':_name, 'email': _email,'pwd': _hashed_password}})
-        resp = jsonify('User updated')
-        resp.status_code = 200
-        return resp
-    else:
-        return not_found()
-
+# User login
 @app.route('/login')
 def login():
+
     _json = request.json
     username = _json['name']
     password = _json['pwd']
-    #pswd = check_password_hash(password)
-    user = mongo.db.user.find_one({'name':username})
-    if password == user['pwd']:
-        return "Login success"
+
+    if username and password :
+        user = collection.find_one({'name':username})
+        if bcrypt.checkpw(password.encode('utf-8'), user['pwd']):
+            return jsonify("Login success")
+        else:
+            return jsonify("Incorrect username or password")
+        
     else:
-        return "Incorrect password"
+        return jsonify("Required fields are empty")
+    
 
-
-
+# Prediction
 model = load_model('acc73.h5')
 model.make_predict_function()
 
@@ -123,33 +87,35 @@ def model_predict(img_path, model):
     preds = model.predict(x)
     return preds
 
-@app.route('/',methods=['GET'])
-def index():
-    return render_template('index.html')
+# Uploading img to dropbox
+def upload_to_dropbox(file_stream, file_name):
+    dbx.files_upload(file_stream.read(), '/' + file_name)
+    shared_link_metadata = dbx.sharing_create_shared_link('/' + file_name)
+    shared_link_url = shared_link_metadata.url
+    return shared_link_url.replace('?dl=0', '?dl=1')
 
-
+# Img upload & classification    
 @app.route('/predict',methods=['GET','POST'])
-def upload():
+def predict():
+
     if request.method == 'POST':
-        f = request.files['file']
-    
-        basepath = os.path.dirname(__file__)
-        file_path = os.path.join(
-            basepath, 'uploads', secure_filename(f.filename))
-        f.save(file_path)
 
-       
-        preds = model_predict(file_path, model)
+        file = request.files['image']
+        file_stream = file.stream
+        file_name = file.filename
+        # URL of the image
+        shared_link = upload_to_dropbox(file_stream, file_name)
 
+        # Get the content of the URL using requests
+        response = requests.get(shared_link)  
+        preds = model_predict(BytesIO(response.content), model)
         predicted_label = np.argmax(preds)
-
         if predicted_label == 0:
-            result = "Rough Bark"
-            return result
+            return jsonify("Rough Bark")
         else:
-            result = "Stripe canker"
-            return result
-                    
+            return jsonify("Stripe canker")
+            
+          
 
 if __name__ == "__main__":
     app.run(debug=True)
